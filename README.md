@@ -1,9 +1,9 @@
 # vbox-control
 Easy control script for Virtualbox VMS
 
-## Howto
-```
-Usage: ./vbox-control.sh
+## Usage
+```bash
+./vbox-control.sh
 ```
 #### What it does:
 List-VMs
