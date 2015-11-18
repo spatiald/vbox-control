@@ -6,12 +6,12 @@ Easy control script for Virtualbox VMS
 ./vbox-control.sh
 ```
 #### What it does:
-List-VMs
-Start-VM
-Stop-VM
-Reset-VM
-Enable-VM-Autostart
-Disable-VM-Autostart
+- List-VMs
+- Start-VM
+- Stop-VM
+- Reset-VM
+- Enable-VM-Autostart
+- Disable-VM-Autostart
 
 ## License
 Setips by spatiald is licensed under a [Creative Commons Attribution-ShareAlike 4.0 International License](http://creativecommons.org/licenses/by-sa/4.0/legalcode).
