@@ -1,5 +1,5 @@
 # vbox-control
-Easy control script for Virtualbox VMS
+Easy command line control script for Virtualbox VMs
 
 ## Usage
 ```bash
