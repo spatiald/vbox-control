@@ -36,13 +36,28 @@ listAllVMs(){
 }
 
 listRunningVMs(){
-    echo; howManyVMs=$(VBoxManage list runningvms | wc -l)
-    if [[ $howManyVMs == 0 ]]; then
+    echo; runningVMs=$(VBoxManage list runningvms | wc -l)
+    if [[ $runningVMs == 0 ]]; then
         echo; printError "No running VMs were found; are you running as the correct Virtualbox user?"
     else
         echo; printStatus "VMs currently running:"
         echo
         VBoxManage list runningvms
+    fi
+}
+
+listAutostartVMs(){
+    rm -f /tmp/autostart.vms
+    echo; autostartVMs=$(VBoxManage list --long vms |grep "Autostart Enabled: on" | wc -l)
+    if [[ $autostartVMs == 0 ]]; then
+        echo; printError "No autostart VMs were found; are you running as the correct Virtualbox user?"
+    else
+        echo; printStatus "VMs currently set to autostart:"
+        echo
+        for i in `VBoxManage list vms`; do 
+            vmName=`echo "$i" | cut -d"\"" -f 2`
+            if [[ $(VBoxManage showvminfo "$vmName" |grep "Autostart Enabled: on") ]]; then echo $vmName && echo $vmName >> /tmp/autostart.vms; fi
+        done
     fi
 }
 
@@ -150,8 +165,12 @@ configureVMAutostart(){
         # Check for proper config in /etc/default/virtualbox
         sudo sed -i '/VBOXAUTOSTART_DB/d' $virtualboxConfig
         sudo sed -i '/VBOXAUTOSTART_CONFIG/d' $virtualboxConfig
+        sudo sed -i '/SHUTDOWN_USER/d' $virtualboxConfig
+        sudo sed -i '/SHUTDOWN/d' $virtualboxConfig
         echo "VBOXAUTOSTART_DB=$vboxAutostartDB" | sudo tee -a $virtualboxConfig >/dev/null
         echo "VBOXAUTOSTART_CONFIG=$vboxAutostartConfig" | sudo tee -a $virtualboxConfig >/dev/null
+        echo "SHUTDOWN_USERS=all" | sudo tee -a $virtualboxConfig >/dev/null
+        echo "SHUTDOWN=savestate" | sudo tee -a $virtualboxConfig >/dev/null
         # Check for autostart DB file
         sudo rm -rf $vboxAutostartDB 2>/dev/null
         sudo mkdir $vboxAutostartDB 2>/dev/null
@@ -170,6 +189,9 @@ allow=true
 EOF
         # Set the path to the autostart database directory
         VBoxManage setproperty autostartdbpath /etc/vbox
+        # Check for .start and .stop files
+        echo "1" | sudo tee /etc/vbox/redteam.start >/dev/null
+        echo "1" | sudo tee /etc/vbox/redteam.stop >/dev/null
     fi
 }
 
@@ -188,14 +210,12 @@ enableVMAutostart(){
         fi
         break
     done
-    # Restart the vboxauto service
-#    service vboxautostart-service stop
-#    service vboxautostart-service start
 }
 
 disableVMAutostart(){
+    listAutostartVMs
     echo; printQuestion "Please select a vm on which to DISABLE autostart at system boot:\n"
-    select i in `VBoxManage list vms`; do 
+    select i in $(cat /tmp/autostart.vms); do 
         vmName=`echo "$i" | cut -d"\"" -f 2`
         if [[ $i == "" ]]; then printError "Exiting, you did not choose an existing VM."; fi
         checkVMStatus
@@ -207,15 +227,34 @@ disableVMAutostart(){
         fi
         break
     done
-    # Restart the vboxauto service
-#    service vboxautostart-service stop
-#    service vboxautostart-service start
+}
+
+upgradeVirtualbox(){
+    runningvm=$(VBoxManage list runningvms | wc -l)
+    if [[ $runningvm -ge 1 ]]; then 
+        echo; printError "Error, you can NOT upgrade Virtualbox when you have running vms."
+        echo "    Stop all running VMs and try again."
+        break
+    fi
+    # Update packages
+    echo; printStatus "Updating packages."
+    sudo apt-get update; sudo apt-get -y upgrade
+    # Update extension pack
+    version=$(vboxmanage -v)
+    var1=$(echo $version | cut -d 'r' -f 1)
+    var2=$(echo $version | cut -d 'r' -f 2)
+    extensionfile="Oracle_VM_VirtualBox_Extension_Pack-$var1-$var2.vbox-extpack"
+    echo; printStatus "Downloading entension pack:  $extensionfile"
+    wget -c http://download.virtualbox.org/virtualbox/$var1/$extensionfile -O /tmp/$extensionfile
+    # sudo VBoxManage extpack uninstall "Oracle VM VirtualBox Extension Pack"
+    sudo VBoxManage extpack install /tmp/$extensionfile --replace
+    echo; printGood "Upgrade complete; check output for any errors."
 }
 
 # Loop to redisplay mhf
 whattodo(){
     echo; printQuestion "What would you like to do next?"
-    echo "1)List-All-VMs  2)List-Running-VMs  3)Start-VM  4)Stop-VM  5)Reset-VM  6)Enable-VM-Autostart  7)Disable-VM-Autostart  8) Configure-VM-Autostart  9)Exit"
+    echo "1)List-All-VMs  2)List-Running-VMs  3)List-Autostart-VMs  4)Start-VM  5)Stop-VM  6)Reset-VM  7)Enable-VM-Autostart  8)Disable-VM-Autostart  9)Configure-VM-Autostart  10)Upgrade-Virtualbox  11)Exit"
 }
 
 ## MAIN MENU
@@ -232,7 +271,7 @@ fi
 
 echo; printQuestion "What you would like to do:" | tee -a $RACHELLOG
 echo
-select menu in "List-All-VMs" "List-Running-VMs" "Start-VM" "Stop-VM" "Reset-VM" "Enable-VM-Autostart" "Disable-VM-Autostart" "Configure-VM-Autostart" "Exit"; do
+select menu in "List-All-VMs" "List-Running-VMs" "List-Autostart-VMs" "Start-VM" "Stop-VM" "Reset-VM" "Enable-VM-Autostart" "Disable-VM-Autostart" "Configure-VM-Autostart" "Upgrade-Virtualbox" "Exit"; do
         case $menu in
         List-All-VMs)
         listAllVMs
@@ -241,6 +280,11 @@ select menu in "List-All-VMs" "List-Running-VMs" "Start-VM" "Stop-VM" "Reset-VM"
 
         List-Running-VMs)
         listRunningVMs
+        whattodo
+        ;;
+
+        List-Autostart-VMs)
+        listAutostartVMs
         whattodo
         ;;
 
@@ -271,6 +315,11 @@ select menu in "List-All-VMs" "List-Running-VMs" "Start-VM" "Stop-VM" "Reset-VM"
 
         Configure-VM-Autostart)
         configureVMAutostart
+        whattodo
+        ;;
+
+        Upgrade-Virtualbox)
+        upgradeVirtualbox
         whattodo
         ;;
 
