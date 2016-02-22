@@ -3,209 +3,281 @@
 version="2"
 IFS=$(echo -en "\n\b")
 vboxmanageexe=$(which VBoxManage)
+vboxUser="redteam"
+virtualboxConfig="/etc/default/virtualbox"
+vboxAutostartDB="/etc/vbox"
+vboxAutostartConfig="/etc/vbox/autostart.cfg"
 
-function print_good () {
+printGood () {
     echo -e "\x1B[01;32m[+]\x1B[0m $1"
 }
 
-function print_error () {
+printError () {
     echo -e "\x1B[01;31m[-]\x1B[0m $1"
 }
 
-function print_status () {
+printStatus () {
     echo -e "\x1B[01;35m[*]\x1B[0m $1"
 }
 
-function print_question () {
+printQuestion () {
     echo -e "\x1B[01;33m[?]\x1B[0m $1"
 }
 
-function list_vms (){
-    howManyVMs=$(VBoxManage list vms | wc -l)
+listAllVMs(){
+    echo; howManyVMs=$(VBoxManage list vms | wc -l)
     if [[ $howManyVMs == 0 ]]; then
-        echo; print_error "No VMs were found; are you running as the correct Virtualbox user?"
+        echo; printError "No VMs were found; are you running as the correct Virtualbox user?"
     else
-        echo; print_status "VMs currently registered with Virtualbox:"
+        echo; printStatus "VMs currently registered with Virtualbox:"
         echo
         VBoxManage list vms
     fi
 }
 
-function start_vm (){
-    print_question "Please select a vm to START:\n"
+listRunningVMs(){
+    echo; howManyVMs=$(VBoxManage list runningvms | wc -l)
+    if [[ $howManyVMs == 0 ]]; then
+        echo; printError "No running VMs were found; are you running as the correct Virtualbox user?"
+    else
+        echo; printStatus "VMs currently running:"
+        echo
+        VBoxManage list runningvms
+    fi
+}
+
+startVM(){
+    echo; printQuestion "Please select a vm to START:\n"
     select i in `VBoxManage list vms`; do 
         vmName=`echo "$i" | cut -d"\"" -f 2`
-        if [[ $i == "" ]]; then print_error "Exiting, you did not choose an existing VM."; fi
+        if [[ $i == "" ]]; then printError "Exiting, you did not choose an existing VM."; fi
         runningvm=$(VBoxManage list runningvms | grep $i | wc -l)
         if [[ $runningvm -ge "1" ]]; then 
-            print_error "Error, that VM is already running."
+            printError "Error, that VM is already running."
         else
-            echo; print_status "Starting:  $vmName"
+            echo; printStatus "Starting:  $vmName"
             VBoxManage startvm "$vmName" --type headless
         fi
         break
     done
 }
 
-function stop_vm (){
-    print_question "Please select a vm to STOP:\n"
-    select i in `VBoxManage list vms`; do 
+shutdownVM(){
+    # Try to shutdown gracefully
+    echo; printStatus "Trying to gracefully shutdown:  $vmName"
+    VBoxManage controlvm "$vmName" acpipowerbutton
+    echo; printStatus "Watching for VM shutdown (after 30 seconds, VM will be hard shutdown)."
+    count=0
+    while [[ $count -lt 30 ]]; do
+        runningvm=$(VBoxManage list runningvms | grep $i | wc -l)
+        if [[ $runningvm == "0" ]]; then
+            break
+        else
+            sleep 1
+            ((count+=1))
+        fi
+    done
+    runningvm=$(VBoxManage list runningvms | grep $i | wc -l)
+    if [[ $runningvm == "0" ]]; then
+        printGood "VM gracefully powered off."
+    else
+        printError "VM did not power off gracefully, performing hard shutdown."
+        VBoxManage controlvm "$vmName" poweroff
+    fi
+}
+
+
+stopVM(){
+    echo; printQuestion "Currently running VMs - please select a vm to STOP:\n"
+    select i in `VBoxManage list runningvms`; do 
         vmName=`echo "$i" | cut -d"\"" -f 2`
-        if [[ $i == "" ]]; then print_error "Exiting, you did not choose an existing VM."; fi
+        if [[ $i == "" ]]; then printError "Exiting, you did not choose an existing VM."; fi
         runningvm=$(VBoxManage list runningvms | grep $i | wc -l)
         if [[ $runningvm == "0" ]]; then 
-            print_error "Error, that VM is already stopped."
+            printError "Error, that VM is already stopped."
         else
-            echo; print_status "Trying to gracefully shutdown:  $vmName"
-            VBoxManage controlvm "$vmName" acpipowerbutton
-            echo; print_status "Waiting 30 seconds for VM to shutdown..."
-            sleep 30
-            echo; print_status "Checking VM status."
-            runningvm=$(VBoxManage list runningvms | grep $i | wc -l)
-            if [[ $runningvm == "0" ]]; then
-                print_good "VM gracefully powered off."
-            else
-                print_error "VM did not power off graefully, performing hard shutdown."
-                VBoxManage controlvm "$vmName" poweroff
-            fi
+            shutdownVM
         fi
         break
     done
 }
 
-function reset_vm (){
-    print_question "Please select a vm to RESET:\n"
+resetVM(){
+    echo; printQuestion "Please select a vm to RESET:\n"
     select i in `VBoxManage list vms`; do 
         vmName=`echo "$i" | cut -d"\"" -f 2`
-        if [[ $i == "" ]]; then print_error "Exiting, you did not choose an existing VM."; fi
+        if [[ $i == "" ]]; then printError "Exiting, you did not choose an existing VM."; fi
         runningvm=$(VBoxManage list runningvms | grep $i | wc -l)
         if [[ $runningvm == "0" ]]; then 
-            print_error "Error, that VM is not running, trying to start up."
+            printError "Error, that VM is not running, trying to start up."
             VBoxManage startvm "$vmName" --type headless
         else
-            echo; print_status "Resetting:  $vmName"
+            echo; printStatus "Resetting:  $vmName"
             VBoxManage controlvm "$vmName" reset
         fi
         break
     done
 }
 
-function check_vm_status (){
+checkVMStatus(){
     runningvm=$(VBoxManage list runningvms | grep $i | wc -l)
-    if [[ $runningvm -ge "1" ]]; then 
-        export runningflag=1
-        echo; print_error "Error, you can NOT configure autostart on a running VM."
-        read -r -p "Do you want to shutdown the VM in order to configure autostart? [y/N] " response
+    if [[ $runningvm -ge 1 ]]; then 
+        echo; printError "Error, you can NOT configure autostart on a running VM."
+        printQuestion "Do you want to shutdown the VM in order to configure autostart? [y/N] "; read response
         response=${response,,}    # tolower
         if [[ $response =~ ^(yes|y)$ ]]; then
-            echo; print_status "Trying to gracefully shutdown:  $vmName"
-            VBoxManage controlvm "$vmName" acpipowerbutton
-            echo; print_status "Waiting 30 seconds for VM to shutdown..."
-            sleep 30
-            echo; print_status "Checking VM status."
-            runningvm=$(VBoxManage list runningvms | grep $i | wc -l)
-            if [[ $runningvm == "0" ]]; then
-                print_good "VM gracefully powered off."
-            else
-                print_error "VM did not power off graefully, performing hard shutdown."
-                VBoxManage controlvm "$vmName" poweroff
-            fi
+            shutdownVM
+            export runningflag=0
         else
-            echo; print_error "Autostart NOT configured on $vmName."
+            echo; printError "User requested exit; autostart NOT configured on $vmName."
             break
         fi
     fi
 }
 
-function enable_vm_autostart (){
-    echo; print_question "Please select a vm on which to ENABLE autostart at system boot:\n"
+configureVMAutostart(){
+    echo; printError "WARNING:  This is completely rebuild your autostart database and"
+    echo "    REMOVE all current autostart configurations."
+    echo; printQuestion "Do you want to continue? (y/N)"; read reply
+    if [[ $reply =~ ^[Yy]$ ]]; then
+        # Check for vboxautostart-service file
+        if [[ ! -f /etc/init.d/vboxautostart-service ]]; then
+            cd /etc/init.d/
+            sudo wget http://www.virtualbox.org/browser/vbox/trunk/src/VBox/Installer/linux/vboxautostart-service.sh?format=raw -O vboxautostart-service
+            sudo chmod +x vboxautostart-service
+            sudo update-rc.d vboxautostart-service defaults 24 24
+        fi
+        # Check for proper config in /etc/default/virtualbox
+        sudo sed -i '/VBOXAUTOSTART_DB/d' $virtualboxConfig
+        sudo sed -i '/VBOXAUTOSTART_CONFIG/d' $virtualboxConfig
+        echo "VBOXAUTOSTART_DB=$vboxAutostartDB" | sudo tee -a $virtualboxConfig >/dev/null
+        echo "VBOXAUTOSTART_CONFIG=$vboxAutostartConfig" | sudo tee -a $virtualboxConfig >/dev/null
+        # Check for autostart DB file
+        sudo rm -rf $vboxAutostartDB 2>/dev/null
+        sudo mkdir $vboxAutostartDB 2>/dev/null
+        sudo chgrp vboxusers $vboxAutostartDB
+        sudo chmod 1775 $vboxAutostartDB
+        # Check for autostart config file
+        sudo rm -rf $vboxAutostartConfig 2>/dev/null
+        sudo touch $vboxAutostartConfig
+        sudo chown $vboxUser:$vboxUser $vboxAutostartConfig
+        sudo chmod 644 $vboxAutostartConfig
+        sed "s,%VBOXUSER%,$vboxUser,g" > $vboxAutostartConfig << 'EOF'
+default_policy = allow
+%VBOXUSER% = {
+allow=true
+}
+EOF
+        # Set the path to the autostart database directory
+        VBoxManage setproperty autostartdbpath /etc/vbox
+    fi
+}
+
+enableVMAutostart(){
+    # Select system to autostart
+    echo; printQuestion "Please select a vm on which to ENABLE autostart at system boot:\n"
     select i in `VBoxManage list vms`; do 
         vmName=`echo "$i" | cut -d"\"" -f 2`
-        if [[ $i == "" ]]; then print_error "Exiting, you did not choose an existing VM."; fi
-        check_vm_status
+        if [[ $i == "" ]]; then printError "Exiting, you did not choose an existing VM."; fi
+        checkVMStatus
         VBoxManage modifyvm "$vmName" --autostart-enabled on
-        echo; print_good "Autostart ENABLED on $vmName"
-        if [[ $runningflag == "1" ]]; then
-            echo; print_status "Restarting:  $vmName"
+        echo; printGood "Autostart ENABLED on $vmName"
+        if [[ $runningflag == 0 ]]; then
+            echo; printStatus "Restarting:  $vmName"
             VBoxManage startvm "$vmName" --type headless
-        fi            
+        fi
         break
     done
+    # Restart the vboxauto service
+#    service vboxautostart-service stop
+#    service vboxautostart-service start
 }
 
-function disable_vm_autostart (){
-    echo; print_question "Please select a vm on which to DISABLE autostart at system boot:\n"
+disableVMAutostart(){
+    echo; printQuestion "Please select a vm on which to DISABLE autostart at system boot:\n"
     select i in `VBoxManage list vms`; do 
         vmName=`echo "$i" | cut -d"\"" -f 2`
-        if [[ $i == "" ]]; then print_error "Exiting, you did not choose an existing VM."; fi
-        check_vm_status
+        if [[ $i == "" ]]; then printError "Exiting, you did not choose an existing VM."; fi
+        checkVMStatus
         VBoxManage modifyvm "$vmName" --autostart-enabled off
-        echo; print_good "Autostart DISABLED on $vmName"
-        if [[ $runningflag == "1" ]]; then
-            echo; print_status "Restarting:  $vmName"
+        echo; printGood "Autostart DISABLED on $vmName"
+        if [[ $runningflag == 0 ]]; then
+            echo; printStatus "Restarting:  $vmName"
             VBoxManage startvm "$vmName" --type headless
-        fi            
+        fi
         break
     done
+    # Restart the vboxauto service
+#    service vboxautostart-service stop
+#    service vboxautostart-service start
 }
 
-# Loop function to redisplay mhf
-function whattodo {
-    echo; print_question "What would you like to do next?"
-    echo "1)List-VMs  2)Start-VM  3)Stop-VM  4)Reset-VM  5)Enable-VM-Autostart  6)Disable-VM-Autostart  7)Exit"
+# Loop to redisplay mhf
+whattodo(){
+    echo; printQuestion "What would you like to do next?"
+    echo "1)List-All-VMs  2)List-Running-VMs  3)Start-VM  4)Stop-VM  5)Reset-VM  6)Enable-VM-Autostart  7)Disable-VM-Autostart  8) Configure-VM-Autostart  9)Exit"
 }
 
 ## MAIN MENU
 echo; echo "Virtualbox VM Control Script - Version $version"
 echo "-- Author spatialD"
 
-echo; print_status "Running as user:  $(whoami)"
+echo; printStatus "Running as user:  $(whoami)"
 
 if [[ ! -f $vboxmanageexe ]]; then
-    echo; print_status "Checking for VBoxManage (normally in /usr/bin/VBoxManage)."
-    print_error "It appears you do not have Virtualbox installed...no reason to run, exiting."
+    echo; printStatus "Checking for VBoxManage (normally in /usr/bin/VBoxManage)."
+    printError "It appears you do not have Virtualbox installed...no reason to run, exiting."
     echo; exit 1
 fi
 
-echo; print_question "What you would like to do:" | tee -a $RACHELLOG
+echo; printQuestion "What you would like to do:" | tee -a $RACHELLOG
 echo
-select menu in "List-VMs" "Start-VM" "Stop-VM" "Reset-VM" "Enable-VM-Autostart" "Disable-VM-Autostart" "Exit"; do
+select menu in "List-All-VMs" "List-Running-VMs" "Start-VM" "Stop-VM" "Reset-VM" "Enable-VM-Autostart" "Disable-VM-Autostart" "Configure-VM-Autostart" "Exit"; do
         case $menu in
-        List-VMs)
-        list_vms
+        List-All-VMs)
+        listAllVMs
+        whattodo
+        ;;
+
+        List-Running-VMs)
+        listRunningVMs
         whattodo
         ;;
 
         Start-VM)
-        start_vm
+        startVM
         whattodo
         ;;
 
         Stop-VM)
-        stop_vm
+        stopVM
         whattodo
         ;;
 
         Reset-VM)
-        reset_vm
+        resetVM
         whattodo
         ;;
 
         Enable-VM-Autostart)
-        enable_vm_autostart
+        enableVMAutostart
         whattodo
         ;;
 
         Disable-VM-Autostart)
-        disable_vm_autostart
+        disableVMAutostart
+        whattodo
+        ;;
+
+        Configure-VM-Autostart)
+        configureVMAutostart
         whattodo
         ;;
 
         Exit)
-        echo; print_status "User requested to exit."
+        echo; printStatus "User requested to exit."
         unset IFS
         echo; exit 1
         ;;
         esac
 done
-
