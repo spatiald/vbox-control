@@ -135,6 +135,9 @@ resetVM(){
 }
 
 checkVMStatus(){
+    # Default vm running state is 'off' 
+    runningflag=0
+    # Check if vm is running
     runningvm=$(VBoxManage list runningvms | grep $i | wc -l)
     if [[ $runningvm -ge 1 ]]; then 
         echo; printError "Error, you can NOT configure autostart on a running VM."
@@ -142,7 +145,8 @@ checkVMStatus(){
         response=${response,,}    # tolower
         if [[ $response =~ ^(yes|y)$ ]]; then
             shutdownVM
-            export runningflag=0
+            # Since this function ran, we can assume the vm was running prior and we will set the running flag so the vm restarts
+            export runningflag=1
         else
             echo; printError "User requested exit; autostart NOT configured on $vmName."
             break
@@ -202,9 +206,10 @@ enableVMAutostart(){
         vmName=`echo "$i" | cut -d"\"" -f 2`
         if [[ $i == "" ]]; then printError "Exiting, you did not choose an existing VM."; fi
         checkVMStatus
-        VBoxManage modifyvm "$vmName" --autostart-enabled on
+        VBoxManage modifyvm "$vmName" --autostart-enabled on --autostop-type savestate
         echo; printGood "Autostart ENABLED on $vmName"
-        if [[ $runningflag == 0 ]]; then
+        # If machine was running prior to config, then restart
+        if [[ $runningflag == 1 ]]; then
             echo; printStatus "Restarting:  $vmName"
             VBoxManage startvm "$vmName" --type headless
         fi
@@ -221,7 +226,8 @@ disableVMAutostart(){
         checkVMStatus
         VBoxManage modifyvm "$vmName" --autostart-enabled off
         echo; printGood "Autostart DISABLED on $vmName"
-        if [[ $runningflag == 0 ]]; then
+        # If machine was running prior to config, then restart
+        if [[ $runningflag == 1 ]]; then
             echo; printStatus "Restarting:  $vmName"
             VBoxManage startvm "$vmName" --type headless
         fi
