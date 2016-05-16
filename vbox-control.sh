@@ -9,7 +9,9 @@ virtualboxConfig="/etc/default/virtualbox"
 vboxAutostartDB="/etc/vbox"
 vboxAutostartConfig="/etc/vbox/autostart.cfg"
 os=$(uname -a|egrep 'Linux|Ubuntu|Debian')
-logFile="/var/log/$vboxScript.log"
+logFile="$vboxScript.log"
+phpvirtualboxVersion="$(VBoxManage --version)"
+phpvirtualboxVersionShort="$(VBoxManage --version|cut -d"r" -f1)"
 
 # Cleanup trap
 trap cleanup EXIT
@@ -28,6 +30,13 @@ printStatus () {
 
 printQuestion () {
     echo -e "\x1B[01;33m[?]\x1B[0m $1"
+}
+
+testingScript(){
+    set -x
+    upgradePHPVirtualbox
+    set +x
+    stty sane
 }
 
 cleanup(){
@@ -268,6 +277,9 @@ upgradeVirtualbox(){
         vboxsvcPID=$(ps aux | grep VBoxSVC | grep -v "grep" | awk '{ print $2 }')
         kill -9 $vboxsvcPID
     fi
+    # Move out old dkms folder
+    sudo mv /var/lib/dkms/vboxhost/$phpvirtualboxVersionShort ~/var-lib-dkms-vboxhost-$phpvirtualboxVersionShort.backup
+
     # Update packages
     echo; printStatus "Updating packages."
     sudo apt-get update; sudo apt-get -y upgrade
@@ -283,18 +295,58 @@ upgradeVirtualbox(){
     # sudo VBoxManage extpack uninstall "Oracle VM VirtualBox Extension Pack"
     sudo VBoxManage extpack install /tmp/$extensionfile --replace
     echo; printGood "Upgrade complete; check output for any errors."
+    echo "A backup of your dkms vbox folder was saved to ~/var-lib-dkms-vboxhost-$phpvirtualboxVersionShort.backup"
+    echo "If you did not see any dkms errors during the install, you may safely delete this backup folder."
+}
+
+restartVboxWebSvc(){
+    echo; printStatus "Attempting to restart the VBox Web Service"
+    sudo /etc/init.d/vboxweb-service stop
+    sudo /etc/init.d/vboxweb-service start
+    echo; printStatus "Checking if VBox Web Service is running"
+    sudo /etc/init.d/vboxweb-service status
+}
+
+upgradePHPVirtualbox(){
+    timeStamp="$(date +%Y%m%d)"
+    echo; printStatus "Updating phpvirtualbox"
+    cd $HOME
+    if [[ ! `which zip` ]]; then
+        printError "I need to download the program:  zip"
+        apt-get update; apt-get -y install zip
+    fi
+    wget https://sourceforge.net/projects/phpvirtualbox/files/latest/download -O phpvirtualbox-latest.zip
+    # Compress previous backup
+    if [[ -d ./phpvirtualbox.backup1 ]]; then
+        sudo zip -r ./phpvirtualbox.backup2.zip ./phpvirtualbox.backup1
+        if [[ -f ./phpvirtualbox.backup2.zip ]]; then
+            sudo rm -rf ./phpvirtualbox.backup1
+        else
+            echo; printError "Errors on zip install; could not compress older phpvirtualbox folder into zip file."
+            echo "Older backup folder moved to ./phpvirtualbox.backup2"
+            echo; sudo mv ./phpvirtualbox.backup1 ./phpvirtualbox.backup2
+        fi
+    fi
+    # Backup current install
+    sudo mv /var/www/html/phpvirtualbox ./phpvirtualbox.backup1
+    # Unzip latest version
+    sudo unzip ./phpvirtualbox-latest.zip -d /var/www/html
+    sudo mv /var/www/html/phpvirtualbox* /var/www/html/phpvirtualbox
+    # Copy previous config file to new install
+    sudo cp ./phpvirtualbox.backup1/config.php /var/www/html/phpvirtualbox/
+    echo; printGood "phpvirtualbox update completed."
 }
 
 # Loop to redisplay mhf
 whattodo(){
     echo; printQuestion "What would you like to do next?"
-    echo "1)List-All-VMs  2)List-Running-VMs  3)List-Autostart-VMs  4)Start-VM  5)Stop-VM  6)Reset-VM  7)Enable-VM-Autostart  8)Disable-VM-Autostart  9)Configure-VM-Autostart  10)Upgrade-Virtualbox  11)Exit"
+    echo "1)List-All-VMs  2)List-Running-VMs  3)List-Autostart-VMs  4)Start-VM  5)Stop-VM  6)Reset-VM  7)Enable-VM-Autostart  8)Disable-VM-Autostart  9)Configure-VM-Autostart  10)Upgrade-Virtualbox  11)Upgrade-phpvirtualbox  12)Restart-VBox-Web-Service  13)Exit"
 }
 
 interactiveMode(){
     echo; printQuestion "What you would like to do:"
     echo
-    select menu in "List-All-VMs" "List-Running-VMs" "List-Autostart-VMs" "Start-VM" "Stop-VM" "Reset-VM" "Enable-VM-Autostart" "Disable-VM-Autostart" "Configure-VM-Autostart" "Upgrade-Virtualbox" "Exit"; do
+    select menu in "List-All-VMs" "List-Running-VMs" "List-Autostart-VMs" "Start-VM" "Stop-VM" "Reset-VM" "Enable-VM-Autostart" "Disable-VM-Autostart" "Configure-VM-Autostart" "Upgrade-Virtualbox" "Upgrade-phpvirtualbox" "Restart-VBox-Web-Service" "Exit"; do
         case $menu in
         List-All-VMs)
         listAllVMs
@@ -346,6 +398,16 @@ interactiveMode(){
         whattodo
         ;;
 
+        Upgrade-phpvirtualbox)
+        upgradePHPVirtualbox
+        whattodo
+        ;;
+
+        Restart-VBox-Web-Service)
+        restartVboxWebSvc
+        whattodo
+        ;;
+
         Exit)
         echo; printStatus "User requested to exit."
         unset IFS
@@ -375,6 +437,7 @@ exec &> >(tee "$logFile")
 echo; echo "Virtualbox VM Control Script - Version $version"
 printGood "Started:  $(date)"
 printGood "Author:  spatialD"
+printGood "phpVirtualbox Version:  $phpvirtualboxVersion"
 printGood "Running as user:  $(whoami)"
 printGood "Logging to file:  $logFile"
 
@@ -385,7 +448,7 @@ elif [[ $1 == "" ]]; then
     interactiveMode
 else
     IAM=${0##*/} # Short basename
-    while getopts ":hilu" opt
+    while getopts ":hiltu" opt
     do sc=0 #no option or 1 option arguments
         case $opt in
         (h) # Print help/usage statement
