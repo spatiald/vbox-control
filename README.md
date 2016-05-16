@@ -3,8 +3,21 @@ Easy command line control script for Virtualbox VMs
 
 ## Usage
 ```bash
-./vbox-control.sh
+Virtualbox VM Control Script
+
+Usage: vbox-control.sh [-h] [-i] [-u]
+
+Examples:
+./vbox-control.sh -h
+Displays this help menu.
+
+./vbox-control.sh -i
+Interactive mode.
+
+./vbox-control.sh -u
+Update vbox-control.sh with latest version from Github.
 ```
+
 #### What it does:
 - List-VMs
 - Start-VM
@@ -12,6 +25,9 @@ Easy command line control script for Virtualbox VMs
 - Reset-VM
 - Enable-VM-Autostart
 - Disable-VM-Autostart
+- Upgrade Virtualbox
+- Upgrade phpvirtualbox
+- Restart vboxweb-service
 
 ## License
 Setips by spatiald is licensed under a [Creative Commons Attribution-ShareAlike 4.0 International License](http://creativecommons.org/licenses/by-sa/4.0/legalcode).
