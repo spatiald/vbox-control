@@ -470,22 +470,18 @@ else
             ;;
         (u) # UPDATE - Update $vboxScript to the latest release build.
             cd $HOME
-            rm -rf $HOME/vbox-control-gitrepo
-            git clone https://github.com/spatiald/vbox-control.git vbox-control-gitrepo
-            cd vbox-control-gitrepo
-            git checkout master
-            cp vbox-control-gitrepo/$vboxScript.sh $vboxScript.sh
+            wget https://github.com/spatiald/vbox-control/raw/master/vbox-control.sh -O $vboxScript.sh
             chmod +x $vboxScript.sh
             if [[ -f $vboxScript.sh ]]; then echo; printGood "$vboxScript.sh downloaded to $HOME/$vboxScript.sh"; fi
             ;;
         (\?) #Invalid options
-            echo "$IAM: Invalid option: -$OPTARG" >&2
-            printHelp >&2
+            echo "$IAM: Invalid option: -$OPTARG"
+            printHelp
             exit 1
             ;;
         (:) #Missing arguments
-            echo "$IAM: Option -$OPTARG argument(s) missing." >&2
-            printHelp >&2
+            echo "$IAM: Option -$OPTARG argument(s) missing."
+            printHelp
             exit 1
             ;;
         esac
