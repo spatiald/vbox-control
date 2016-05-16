@@ -469,14 +469,14 @@ else
             testingScript >&2
             ;;
         (u) # UPDATE - Update $vboxScript to the latest release build.
-            rm -rf /root/vbox-control-gitrepo
+            cd $HOME
+            rm -rf $HOME/vbox-control-gitrepo
             git clone https://github.com/spatiald/vbox-control.git vbox-control-gitrepo
-            cd /root/vbox-control-gitrepo
+            cd vbox-control-gitrepo
             git checkout master
-            commandStatus
-            cp /root/vbox-control-gitrepo/$vboxScript.sh /root/$vboxScript.sh
-            chmod +x /root/$vboxScript.sh
-            if [[ -f /root/$vboxScript.sh ]]; then echo; printGood "$vboxScript.sh downloaded to /root/$vboxScript.sh"; fi
+            cp vbox-control-gitrepo/$vboxScript.sh $vboxScript.sh
+            chmod +x $vboxScript.sh
+            if [[ -f $vboxScript.sh ]]; then echo; printGood "$vboxScript.sh downloaded to $HOME/$vboxScript.sh"; fi
             ;;
         (\?) #Invalid options
             echo "$IAM: Invalid option: -$OPTARG" >&2
