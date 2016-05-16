@@ -217,6 +217,7 @@ EOF
         # Check for .start and .stop files
         echo "1" | sudo tee /etc/vbox/redteam.start >/dev/null
         echo "1" | sudo tee /etc/vbox/redteam.stop >/dev/null
+        sudo chown redteam /etc/vbox/redteam.st*
     fi
 }
 
