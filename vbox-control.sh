@@ -1,13 +1,18 @@
 #!/bin/bash
-version="3"
+version="4"
 # Ignore spaces as line breaks in for loop
 IFS=$(echo -en "\n\b")
-vboxmanageexe=$(which VBoxManage)
+vboxScript="vbox-control"
+vboxManageExe=$(which VBoxManage)
 vboxUser="redteam"
 virtualboxConfig="/etc/default/virtualbox"
 vboxAutostartDB="/etc/vbox"
 vboxAutostartConfig="/etc/vbox/autostart.cfg"
 os=$(uname -a|egrep 'Linux|Ubuntu|Debian')
+logFile="/var/log/$vboxScript.log"
+
+# Cleanup trap
+trap cleanup EXIT
 
 printGood () {
     echo -e "\x1B[01;32m[+]\x1B[0m $1"
@@ -23,6 +28,12 @@ printStatus () {
 
 printQuestion () {
     echo -e "\x1B[01;33m[?]\x1B[0m $1"
+}
+
+cleanup(){
+    echo "" >> $logFile
+    stty sane
+    echo; exit $?
 }
 
 listAllVMs(){
@@ -240,7 +251,7 @@ upgradeVirtualbox(){
     # Check OS
     if [[ -z $os ]]; then
         echo; printError "Error:  This tool only upgrades Virtualbox on Debian-based systems."
-        break
+        echo; break
     fi
     # Check for running vbox service/vboxdrv/vms
     if [[ $(ps aux | grep VBoxSVC | grep -v "grep" | echo $?) == 0 ]]; then
@@ -280,21 +291,10 @@ whattodo(){
     echo "1)List-All-VMs  2)List-Running-VMs  3)List-Autostart-VMs  4)Start-VM  5)Stop-VM  6)Reset-VM  7)Enable-VM-Autostart  8)Disable-VM-Autostart  9)Configure-VM-Autostart  10)Upgrade-Virtualbox  11)Exit"
 }
 
-## MAIN MENU
-echo; echo "Virtualbox VM Control Script - Version $version"
-echo "-- Author spatialD"
-
-echo; printStatus "Running as user:  $(whoami)"
-
-if [[ ! -f $vboxmanageexe ]]; then
-    echo; printStatus "Checking for VBoxManage (normally in /usr/bin/VBoxManage)."
-    printError "It appears you do not have Virtualbox installed...no reason to run, exiting."
-    echo; exit 1
-fi
-
-echo; printQuestion "What you would like to do:" | tee -a $RACHELLOG
-echo
-select menu in "List-All-VMs" "List-Running-VMs" "List-Autostart-VMs" "Start-VM" "Stop-VM" "Reset-VM" "Enable-VM-Autostart" "Disable-VM-Autostart" "Configure-VM-Autostart" "Upgrade-Virtualbox" "Exit"; do
+interactiveMode(){
+    echo; printQuestion "What you would like to do:"
+    echo
+    select menu in "List-All-VMs" "List-Running-VMs" "List-Autostart-VMs" "Start-VM" "Stop-VM" "Reset-VM" "Enable-VM-Autostart" "Disable-VM-Autostart" "Configure-VM-Autostart" "Upgrade-Virtualbox" "Exit"; do
         case $menu in
         List-All-VMs)
         listAllVMs
@@ -352,5 +352,83 @@ select menu in "List-All-VMs" "List-Running-VMs" "List-Autostart-VMs" "Start-VM"
         echo; exit 1
         ;;
         esac
-done
+    done
+}
 
+printHelp(){
+    echo "Usage: $vboxScript.sh [-h] [-i] [-u]"
+    echo
+}
+
+#### MAIN PROGRAM ####
+
+if [[ ! -f $vboxManageExe ]]; then
+    echo; printStatus "Checking for VBoxManage (normally in /usr/bin/VBoxManage)."
+    printError "It appears you do not have Virtualbox installed...no reason to run, exiting."
+    echo; exit 1
+fi
+
+# Logging
+exec &> >(tee "$logFile")
+
+# Start
+echo; echo "Virtualbox VM Control Script - Version $version"
+printGood "Started:  $(date)"
+printGood "Author:  spatialD"
+printGood "Running as user:  $(whoami)"
+printGood "Logging to file:  $logFile"
+
+# Non-interactive menu
+if [[ $1 == "--help" ]]; then
+    echo; printHelp
+elif [[ $1 == "" ]]; then
+    interactiveMode
+else
+    IAM=${0##*/} # Short basename
+    while getopts ":hilu" opt
+    do sc=0 #no option or 1 option arguments
+        case $opt in
+        (h) # Print help/usage statement
+            echo; printHelp
+            echo "Examples:"
+            echo "./$vboxScript.sh -h"
+            echo "Displays this help menu."
+            echo; echo "./$vboxScript.sh -i"
+            echo "Interactive mode."
+            echo; echo "./$vboxScript.sh -u"
+            echo "Update $vboxScript.sh with latest version from Github."
+            echo
+            ;;
+        (i) # Fully interactive mode
+            interactiveMode >&2
+            ;;
+        (t) # Testing script
+            testingScript >&2
+            ;;
+        (u) # UPDATE - Update $vboxScript to the latest release build.
+            rm -rf /root/vbox-control-gitrepo
+            git clone https://github.com/spatiald/vbox-control.git vbox-control-gitrepo
+            cd /root/vbox-control-gitrepo
+            git checkout master
+            commandStatus
+            cp /root/vbox-control-gitrepo/$vboxScript.sh /root/$vboxScript.sh
+            chmod +x /root/$vboxScript.sh
+            if [[ -f /root/$vboxScript.sh ]]; then echo; printGood "$vboxScript.sh downloaded to /root/$vboxScript.sh"; fi
+            ;;
+        (\?) #Invalid options
+            echo "$IAM: Invalid option: -$OPTARG" >&2
+            printHelp >&2
+            exit 1
+            ;;
+        (:) #Missing arguments
+            echo "$IAM: Option -$OPTARG argument(s) missing." >&2
+            printHelp >&2
+            exit 1
+            ;;
+        esac
+        if [[ $OPTIND != 1 ]]; then #This test fails only if multiple options are stacked after a single "-"
+            shift $((OPTIND - 1 + sc))
+            OPTIND=1
+        fi
+    done
+fi
