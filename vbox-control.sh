@@ -1,5 +1,5 @@
 #!/bin/bash
-version="4"
+version="4.1"
 # Ignore spaces as line breaks in for loop
 IFS=$(echo -en "\n\b")
 vboxScript="vbox-control"
