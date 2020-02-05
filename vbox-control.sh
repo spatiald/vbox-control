@@ -294,7 +294,7 @@ upgradeVirtualbox(){
     echo; printStatus "Downloading entension pack:  $extensionfile"
     wget -c http://download.virtualbox.org/virtualbox/$var1/$extensionfile -O /tmp/$extensionfile
     # sudo VBoxManage extpack uninstall "Oracle VM VirtualBox Extension Pack"
-    sudo VBoxManage extpack install /tmp/$extensionfile --replace
+    yes | sudo VBoxManage extpack install /tmp/$extensionfile --replace
     echo; printGood "Upgrade complete; check output for any errors."
     echo "A backup of your dkms vbox folder was saved to ~/var-lib-dkms-vboxhost-$phpvirtualboxVersionShort.backup"
     echo "If you did not see any dkms errors during the install, you may safely delete this backup folder."
