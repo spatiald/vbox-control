@@ -1,5 +1,5 @@
 #!/bin/bash
-version="4.1"
+version="4.2"
 # Ignore spaces as line breaks in for loop
 IFS=$(echo -en "\n\b")
 vboxScript="vbox-control"
@@ -10,8 +10,8 @@ vboxAutostartDB="/etc/vbox"
 vboxAutostartConfig="/etc/vbox/autostart.cfg"
 os=$(uname -a|egrep 'Linux|Ubuntu|Debian')
 logFile="$vboxScript.log"
-phpvirtualboxVersion="$(VBoxManage --version)"
-phpvirtualboxVersionShort="$(VBoxManage --version|cut -d"r" -f1)"
+phpvirtualboxVersion="$(VBoxManage --version > /dev/null 2>&1)"
+phpvirtualboxVersionShort="$(echo $phpvirtualboxVersion | cut -d"r" -f1)"
 
 # Cleanup trap
 trap cleanup EXIT
@@ -34,7 +34,7 @@ printQuestion () {
 
 testingScript(){
     set -x
-    upgradePHPVirtualbox
+    upgradePHPVirtualBox
     set +x
     stty sane
 }
@@ -48,9 +48,9 @@ cleanup(){
 listAllVMs(){
     echo; howManyVMs=$(VBoxManage list vms | wc -l | awk '{ print $1 }')
     if [[ $howManyVMs == 0 ]]; then
-        echo; printError "No VMs were found; are you running as the correct Virtualbox user?"
+        echo; printError "No VMs were found; are you running as the correct VirtualBox user?"
     else
-        echo; printStatus "VMs currently registered with Virtualbox:"
+        echo; printStatus "VMs currently registered with VirtualBox:"
         echo
         VBoxManage list vms
     fi
@@ -59,7 +59,7 @@ listAllVMs(){
 listRunningVMs(){
     echo; runningVMs=$(VBoxManage list runningvms | wc -l | awk '{ print $1 }')
     if [[ $runningVMs == 0 ]]; then
-        echo; printError "No running VMs were found; are you running as the correct Virtualbox user?"
+        echo; printError "No running VMs were found; are you running as the correct VirtualBox user?"
     else
         echo; printStatus "VMs currently running:"
         echo
@@ -71,7 +71,7 @@ listAutostartVMs(){
     rm -f /tmp/autostart.vms
     echo; autostartVMs=$(VBoxManage list --long vms |grep "Autostart Enabled: on" | wc -l | awk '{ print $1 }')
     if [[ $autostartVMs == 0 ]]; then
-        echo; printError "No autostart VMs were found; are you running as the correct Virtualbox user?"
+        echo; printError "No autostart VMs were found; are you running as the correct VirtualBox user?"
     else
         echo; printStatus "VMs currently set to autostart:"
         echo
@@ -192,17 +192,17 @@ configureVMAutostart(){
         sudo sed -i '/VBOXAUTOSTART_CONFIG/d' $virtualboxConfig
         sudo sed -i '/SHUTDOWN_USER/d' $virtualboxConfig
         sudo sed -i '/SHUTDOWN/d' $virtualboxConfig
-        echo "VBOXAUTOSTART_DB=$vboxAutostartDB" | sudo tee -a $virtualboxConfig >/dev/null
-        echo "VBOXAUTOSTART_CONFIG=$vboxAutostartConfig" | sudo tee -a $virtualboxConfig >/dev/null
-        echo "SHUTDOWN_USERS=all" | sudo tee -a $virtualboxConfig >/dev/null
-        echo "SHUTDOWN=savestate" | sudo tee -a $virtualboxConfig >/dev/null
+        echo "VBOXAUTOSTART_DB=$vboxAutostartDB" | sudo tee -a $virtualboxConfig > /dev/null 2>&1
+        echo "VBOXAUTOSTART_CONFIG=$vboxAutostartConfig" | sudo tee -a $virtualboxConfig > /dev/null 2>&1
+        echo "SHUTDOWN_USERS=all" | sudo tee -a $virtualboxConfig > /dev/null 2>&1
+        echo "SHUTDOWN=savestate" | sudo tee -a $virtualboxConfig > /dev/null 2>&1
         # Check for autostart DB file
-        sudo rm -rf $vboxAutostartDB 2>/dev/null
-        sudo mkdir $vboxAutostartDB 2>/dev/null
+        sudo rm -rf $vboxAutostartDB > /dev/null 2>&1
+        sudo mkdir $vboxAutostartDB > /dev/null 2>&1
         sudo chgrp vboxusers $vboxAutostartDB
         sudo chmod 1775 $vboxAutostartDB
         # Check for autostart config file
-        sudo rm -rf $vboxAutostartConfig 2>/dev/null
+        sudo rm -rf $vboxAutostartConfig > /dev/null 2>&1
         sudo touch $vboxAutostartConfig
         sudo chown $vboxUser:$vboxUser $vboxAutostartConfig
         sudo chmod 644 $vboxAutostartConfig
@@ -215,8 +215,8 @@ EOF
         # Set the path to the autostart database directory
         VBoxManage setproperty autostartdbpath /etc/vbox
         # Check for .start and .stop files
-        echo "1" | sudo tee /etc/vbox/redteam.start >/dev/null
-        echo "1" | sudo tee /etc/vbox/redteam.stop >/dev/null
+        echo "1" | sudo tee /etc/vbox/redteam.start > /dev/null 2>&1
+        echo "1" | sudo tee /etc/vbox/redteam.stop > /dev/null 2>&1
         sudo chown redteam /etc/vbox/redteam.st*
     fi
 }
@@ -257,10 +257,10 @@ disableVMAutostart(){
     done
 }
 
-upgradeVirtualbox(){
+upgradeVirtualBox(){
     # Check OS
     if [[ -z $os ]]; then
-        echo; printError "Error:  This tool only upgrades Virtualbox on Debian-based systems."
+        echo; printError "Error:  This tool only upgrades VirtualBox on Debian-based systems."
         echo; break
     fi
     # Check for running vbox service/vboxdrv/vms
@@ -268,12 +268,12 @@ upgradeVirtualbox(){
         if [[ -z $(service vboxdrv status | grep "not loaded") ]]; then
             runningvm=$(VBoxManage list runningvms | wc -l | awk '{ print $1 }')
             if [[ $runningvm -ge 1 ]]; then
-                echo; printError "Error, you can NOT upgrade Virtualbox when you have running vms."
+                echo; printError "Error, you can NOT upgrade VirtualBox when you have running vms."
                 echo "    Stop all running VMs and try again."
                 echo; break
             fi
             echo; printStatus "Shutting down vboxdrv service."
-            sudo service vboxdrv stop 2> /dev/null
+            sudo service vboxdrv stop > /dev/null
         fi
         vboxsvcPID=$(ps aux | grep VBoxSVC | grep -v "grep" | awk '{ print $2 }')
         kill -9 $vboxsvcPID
@@ -308,7 +308,7 @@ restartVboxWebSvc(){
     sudo /etc/init.d/vboxweb-service status
 }
 
-upgradePHPVirtualbox(){
+upgradePHPVirtualBox(){
     timeStamp="$(date +%Y%m%d)"
     echo; printStatus "Updating phpvirtualbox"
     cd $HOME
@@ -338,16 +338,59 @@ upgradePHPVirtualbox(){
     echo; printGood "phpvirtualbox update completed."
 }
 
+installVirtualBox(){
+    # Check internet connectivity
+    checkInternet(){
+        printStatus "Checking internet connectivity..."
+        if [[ $internet == "1" || -z $internet ]]; then
+            # Check internet connecivity
+            WGET=`which wget`
+            $WGET -q --tries=10 --timeout=5 --spider -U "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko" http://ipchicken.com
+            if [[ $? -eq 0 ]]; then
+                printGood "Internet connection confirmed."
+                internet=1
+            else
+                echo; printError "No internet connectivity."
+                internet=0
+            fi
+        fi
+    }
+
+    checkInternet    
+    if [[ $internet == 1 ]]; then
+        # Install virtualbox
+        echo; wget -q https://www.virtualbox.org/download/oracle_vbox_2016.asc -O- | sudo apt-key add -
+        echo; sudo add-apt-repository "deb [arch=amd64] http://download.virtualbox.org/virtualbox/debian $(lsb_release -cs) contrib"
+        echo; sudo apt update && echo; sudo apt-cache search VirtualBox | grep "virtualbox-"
+        printQuestion "What version of VirtualBox would you like to install? [i.e. \"6.1\"]"; read VERSION
+        echo; sudo apt -y install unzip apache2 virtualbox-$VERSION
+        # Install phpvirtualbox
+        wget https://github.com/phpvirtualbox/phpvirtualbox/archive/master.zip 
+        sudo unzip -d /var/www/html master.zip && rm master.zip && sudo mv /var/www/html/phpvirtualbox-master /var/www/html/phpvirtualbox && chown 
+        echo; printStatus "HIGHLY recommend that you check your apache2 instance to ensure it is running and on which port."
+        printStatus "Additionally, rename config.php-example to config.php and edit as needed."
+        echo "It is located here:  /var/www/html/phpvirtualbox/config.php"
+        exit 0
+    else
+        echo; printError "You are not connected to the internet; connect to the internet and try again. Exiting..."
+        exit 1
+    fi
+}
+
+removeVirtualBox(){
+    sudo apt remove virtualbox virtualbox-*
+}
+
 # Loop to redisplay mhf
 whattodo(){
     echo; printQuestion "What would you like to do next?"
-    echo "1)List-All-VMs  2)List-Running-VMs  3)List-Autostart-VMs  4)Start-VM  5)Stop-VM  6)Reset-VM  7)Enable-VM-Autostart  8)Disable-VM-Autostart  9)Configure-VM-Autostart  10)Upgrade-Virtualbox  11)Upgrade-phpvirtualbox  12)Restart-VBox-Web-Service  13)Exit"
+    echo "1)List-All-VMs  2)List-Running-VMs  3)List-Autostart-VMs  4)Start-VM  5)Stop-VM  6)Reset-VM  7)Enable-VM-Autostart  8)Disable-VM-Autostart  9)Configure-VM-Autostart  10)Upgrade-VirtualBox  11)Upgrade-phpvirtualbox  12)Restart-VBox-Web-Service  13)Exit"
 }
 
 interactiveMode(){
     echo; printQuestion "What you would like to do:"
     echo
-    select menu in "List-All-VMs" "List-Running-VMs" "List-Autostart-VMs" "Start-VM" "Stop-VM" "Reset-VM" "Enable-VM-Autostart" "Disable-VM-Autostart" "Configure-VM-Autostart" "Upgrade-Virtualbox" "Upgrade-phpvirtualbox" "Restart-VBox-Web-Service" "Exit"; do
+    select menu in "List-All-VMs" "List-Running-VMs" "List-Autostart-VMs" "Start-VM" "Stop-VM" "Reset-VM" "Enable-VM-Autostart" "Disable-VM-Autostart" "Configure-VM-Autostart" "Upgrade-VirtualBox" "Upgrade-phpvirtualbox" "Restart-VBox-Web-Service" "Exit"; do
         case $menu in
         List-All-VMs)
         listAllVMs
@@ -394,13 +437,13 @@ interactiveMode(){
         whattodo
         ;;
 
-        Upgrade-Virtualbox)
-        upgradeVirtualbox
+        Upgrade-VirtualBox)
+        upgradeVirtualBox
         whattodo
         ;;
 
         Upgrade-phpvirtualbox)
-        upgradePHPVirtualbox
+        upgradePHPVirtualBox
         whattodo
         ;;
 
@@ -425,20 +468,24 @@ printHelp(){
 
 #### MAIN PROGRAM ####
 
-if [[ ! -f $vboxManageExe ]]; then
-    echo; printStatus "Checking for VBoxManage (normally in /usr/bin/VBoxManage)."
-    printError "It appears you do not have Virtualbox installed...no reason to run, exiting."
-    echo; exit 1
-fi
-
 # Logging
 exec &> >(tee "$logFile")
 
 # Start
-echo; echo "Virtualbox VM Control Script - Version $version"
+echo; echo "VirtualBox VM Control Script - Version $version"
 printGood "Started:  $(date)"
-printGood "Author:  spatialD"
-printGood "phpVirtualbox Version:  $phpvirtualboxVersion"
+printGood "Author:  spatiald"
+if [[ ! -f $vboxManageExe ]]; then
+    echo; printQuestion "It appears you do not have VirtualBox installed...do you want to install VirtualBox? [Y/n]"; read REPLY
+    if [[ $REPLY =~ ^[Nn]$ ]]; then
+        echo; printStatus "We will NOT install VirtualBox, exiting."
+        exit 1
+    else 
+        installVirtualBox
+    fi
+    echo
+fi
+printGood "phpVirtualBox Version:  $phpvirtualboxVersion"
 printGood "Running as user:  $(whoami)"
 printGood "Logging to file:  $logFile"
 
@@ -449,7 +496,7 @@ elif [[ $1 == "" ]]; then
     interactiveMode
 else
     IAM=${0##*/} # Short basename
-    while getopts ":hiltu" opt
+    while getopts ":hilrtu" opt
     do sc=0 #no option or 1 option arguments
         case $opt in
         (h) # Print help/usage statement
@@ -465,6 +512,16 @@ else
             ;;
         (i) # Fully interactive mode
             interactiveMode >&2
+            ;;
+        (r) # Remove VirtualBox
+            printQuestion "Are you certain that you want to remove VirtualBox (it will note delete the VMs)? [y/N]"; read REPLY
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                removeVirtualBox >&2
+                printGood "VirtualBox removed.  Your VMs are most likely located in the directory \"$HOME/Virtualbox VMs\"."
+            else 
+                echo; printStatus "We will NOT remove VirtualBox."
+                exit 1
+            fi
             ;;
         (t) # Testing script
             testingScript >&2
