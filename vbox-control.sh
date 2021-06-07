@@ -1,5 +1,5 @@
 #!/bin/bash
-version="4.2"
+version="4.3"
 # Ignore spaces as line breaks in for loop
 IFS=$(echo -en "\n\b")
 vboxScript="vbox-control"
@@ -10,8 +10,14 @@ vboxAutostartDB="/etc/vbox"
 vboxAutostartConfig="/etc/vbox/autostart.cfg"
 os=$(uname -a|egrep 'Linux|Ubuntu|Debian')
 logFile="$vboxScript.log"
-phpvirtualboxVersion="$(VBoxManage --version > /dev/null 2>&1)"
-phpvirtualboxVersionShort="$(echo $phpvirtualboxVersion | cut -d"r" -f1)"
+virtualboxVersion="$(VBoxManage --version)"
+virtualboxVersionShort="$(echo $virtualboxVersion | cut -d"r" -f1)"
+virtualboxVersionAvailable="$(curl -L -s "https://www.oracle.com/virtualization/technologies/vm/downloads/virtualbox-downloads.html" | grep -iF "latest release" | sed -e 's/^[ \t]*//' | cut -d" " -f6 | cut -d"." -f1-3)"
+#virtualboxVersion="$(apt list --installed 2>/dev/null |grep "virtualbox-" | cut -d"/" -f1)"
+#virtualboxVersionAvailable="$(apt-cache search VirtualBox | grep "virtualbox-" | tail -n1 | cut -d" " -f1)"
+phpvirtualboxBranch="develop"
+phpvirtualboxPath="/var/www/html/vbox"
+phpvirtualboxVersion="$(cat $phpvirtualboxPath/CHANGELOG.txt | head -n2 | tail -n1 | sed -e 's/^[ \t]*//')"
 
 # Cleanup trap
 trap cleanup EXIT
@@ -69,7 +75,7 @@ listRunningVMs(){
 
 listAutostartVMs(){
     rm -f /tmp/autostart.vms
-    echo; autostartVMs=$(VBoxManage list --long vms |grep "Autostart Enabled: on" | wc -l | awk '{ print $1 }')
+    echo; autostartVMs=$(VBoxManage list --long vms |grep "^Autostart Enabled:           enabled" | wc -l | awk '{ print $1 }')
     if [[ $autostartVMs == 0 ]]; then
         echo; printError "No autostart VMs were found; are you running as the correct VirtualBox user?"
     else
@@ -77,7 +83,7 @@ listAutostartVMs(){
         echo
         for i in `VBoxManage list vms`; do
             vmName=`echo "$i" | cut -d"\"" -f 2`
-            if [[ $(VBoxManage showvminfo "$vmName" |grep "Autostart Enabled: on") ]]; then echo $vmName && echo $vmName >> /tmp/autostart.vms; fi
+            if [[ $(VBoxManage showvminfo "$vmName" |grep "^Autostart Enabled:           enabled") ]]; then echo $vmName && echo $vmName >> /tmp/autostart.vms; fi
         done
     fi
 }
@@ -202,16 +208,16 @@ configureVMAutostart(){
         sudo chgrp vboxusers $vboxAutostartDB
         sudo chmod 1775 $vboxAutostartDB
         # Check for autostart config file
-        sudo rm -rf $vboxAutostartConfig > /dev/null 2>&1
         sudo touch $vboxAutostartConfig
         sudo chown $vboxUser:$vboxUser $vboxAutostartConfig
         sudo chmod 644 $vboxAutostartConfig
         sed "s,%VBOXUSER%,$vboxUser,g" > $vboxAutostartConfig << 'EOF'
-default_policy = allow
+default_policy = deny
 %VBOXUSER% = {
-allow=true
+allow = true
 }
 EOF
+        sudo usermod -aG vboxusers $vboxUser
         # Set the path to the autostart database directory
         VBoxManage setproperty autostartdbpath /etc/vbox
         # Check for .start and .stop files
@@ -236,6 +242,7 @@ enableVMAutostart(){
             VBoxManage startvm "$vmName" --type headless
         fi
         break
+        sudo service vboxautostart-service restart
     done
 }
 
@@ -257,6 +264,17 @@ disableVMAutostart(){
     done
 }
 
+upgradeExtensionPack(){
+    version=$(vboxmanage -v)
+    var1=$(echo $version | cut -d 'r' -f 1)
+    var2=$(echo $version | cut -d 'r' -f 2)
+    extensionfile="Oracle_VM_VirtualBox_Extension_Pack-$var1-$var2.vbox-extpack"
+    echo; printStatus "Downloading entension pack:  $extensionfile"
+    wget -c http://download.virtualbox.org/virtualbox/$var1/$extensionfile -O /tmp/$extensionfile
+    # sudo VBoxManage extpack uninstall "Oracle VM VirtualBox Extension Pack"
+    yes | sudo VBoxManage extpack install /tmp/$extensionfile --replace
+}
+
 upgradeVirtualBox(){
     # Check OS
     if [[ -z $os ]]; then
@@ -270,7 +288,7 @@ upgradeVirtualBox(){
             if [[ $runningvm -ge 1 ]]; then
                 echo; printError "Error, you can NOT upgrade VirtualBox when you have running vms."
                 echo "    Stop all running VMs and try again."
-                echo; break
+                exit 0
             fi
             echo; printStatus "Shutting down vboxdrv service."
             sudo service vboxdrv stop > /dev/null
@@ -279,33 +297,27 @@ upgradeVirtualBox(){
         kill -9 $vboxsvcPID
     fi
     # Move out old dkms folder
-    sudo mv /var/lib/dkms/vboxhost/$phpvirtualboxVersionShort ~/var-lib-dkms-vboxhost-$phpvirtualboxVersionShort.backup
+    sudo mv /var/lib/dkms/vboxhost/$virtualboxVersionShort ~/var-lib-dkms-vboxhost-$virtualboxVersionShort.backup
 
     # Update packages
     echo; printStatus "Updating packages."
     sudo apt-get update; sudo apt-get -y upgrade
+    sudo /sbin/vboxconfig
     # Setup vboxdrv
     sudo /sbin/rcvboxdrv setup
-    # Update extension pack
-    version=$(vboxmanage -v)
-    var1=$(echo $version | cut -d 'r' -f 1)
-    var2=$(echo $version | cut -d 'r' -f 2)
-    extensionfile="Oracle_VM_VirtualBox_Extension_Pack-$var1-$var2.vbox-extpack"
-    echo; printStatus "Downloading entension pack:  $extensionfile"
-    wget -c http://download.virtualbox.org/virtualbox/$var1/$extensionfile -O /tmp/$extensionfile
-    # sudo VBoxManage extpack uninstall "Oracle VM VirtualBox Extension Pack"
-    yes | sudo VBoxManage extpack install /tmp/$extensionfile --replace
+    upgradeExtensionPack
     echo; printGood "Upgrade complete; check output for any errors."
-    echo "A backup of your dkms vbox folder was saved to ~/var-lib-dkms-vboxhost-$phpvirtualboxVersionShort.backup"
+    echo "A backup of your dkms vbox folder was saved to ~/var-lib-dkms-vboxhost-$virtualboxVersionShort.backup"
     echo "If you did not see any dkms errors during the install, you may safely delete this backup folder."
 }
 
 restartVboxWebSvc(){
     echo; printStatus "Attempting to restart the VBox Web Service"
-    sudo /etc/init.d/vboxweb-service stop
-    sudo /etc/init.d/vboxweb-service start
+    sudo systemctl stop vboxweb-service; sleep 2
+    sudo systemctl enable vboxweb-service; sleep 2
+    sudo systemctl start vboxweb-service; sleep 2
     echo; printStatus "Checking if VBox Web Service is running"
-    sudo /etc/init.d/vboxweb-service status
+    sudo systemctl status vboxweb-service
 }
 
 upgradePHPVirtualBox(){
@@ -314,9 +326,10 @@ upgradePHPVirtualBox(){
     cd $HOME
     if [[ ! `which zip` ]]; then
         printError "I need to download the program:  zip"
-        apt-get update; apt-get -y install zip
+        sudo apt-get update; sudo apt-get -y install zip
     fi
-    wget https://sourceforge.net/projects/phpvirtualbox/files/latest/download -O phpvirtualbox-latest.zip
+    wget https://github.com/phpvirtualbox/phpvirtualbox/archive/$phpvirtualboxBranch.zip -O phpvirtualbox-$phpvirtualboxBranch.zip
+    # wget https://sourceforge.net/projects/phpvirtualbox/files/latest/download -O phpvirtualbox-latest.zip
     # Compress previous backup
     if [[ -d ./phpvirtualbox.backup1 ]]; then
         sudo zip -r ./phpvirtualbox.backup2.zip ./phpvirtualbox.backup1
@@ -329,12 +342,14 @@ upgradePHPVirtualBox(){
         fi
     fi
     # Backup current install
-    sudo mv /var/www/html/phpvirtualbox ./phpvirtualbox.backup1
+    sudo mv $phpvirtualboxPath ./phpvirtualbox.backup1
     # Unzip latest version
-    sudo unzip ./phpvirtualbox-latest.zip -d /var/www/html
-    sudo mv /var/www/html/phpvirtualbox* /var/www/html/phpvirtualbox
+    sudo unzip ./phpvirtualbox-$phpvirtualboxBranch.zip -d /var/www/html
+    sudo mv /var/www/html/phpvirtualbox-$phpvirtualboxBranch $phpvirtualboxPath
     # Copy previous config file to new install
-    sudo cp ./phpvirtualbox.backup1/config.php /var/www/html/phpvirtualbox/
+    sudo cp ./phpvirtualbox.backup1/config.php $phpvirtualboxPath/
+    # Restart vbox web service
+    restartVboxWebSvc
     echo; printGood "phpvirtualbox update completed."
 }
 
@@ -356,21 +371,46 @@ installVirtualBox(){
         fi
     }
 
+    # Install VirtualBox
     checkInternet    
     if [[ $internet == 1 ]]; then
-        # Install virtualbox
-        echo; wget -q https://www.virtualbox.org/download/oracle_vbox_2016.asc -O- | sudo apt-key add -
-        echo; sudo add-apt-repository "deb [arch=amd64] http://download.virtualbox.org/virtualbox/debian $(lsb_release -cs) contrib"
-        echo; sudo apt update && echo; sudo apt-cache search VirtualBox | grep "virtualbox-"
-        printQuestion "What version of VirtualBox would you like to install? [i.e. \"6.1\"]"; read VERSION
-        echo; sudo apt -y install unzip apache2 virtualbox-$VERSION
-        # Install phpvirtualbox
-        wget https://github.com/phpvirtualbox/phpvirtualbox/archive/master.zip 
-        sudo unzip -d /var/www/html master.zip && rm master.zip && sudo mv /var/www/html/phpvirtualbox-master /var/www/html/phpvirtualbox && chown 
-        echo; printStatus "HIGHLY recommend that you check your apache2 instance to ensure it is running and on which port."
-        printStatus "Additionally, rename config.php-example to config.php and edit as needed."
-        echo "It is located here:  /var/www/html/phpvirtualbox/config.php"
+        # Install virtualbox and phpvirtualbox via phpvirtualbox install script
+        wget https://raw.githubusercontent.com/phpvirtualbox/phpvirtualbox/develop/packaging/install-scripts/install.bash
+        sudo bash $phpvirtualboxPath/packaging/install-scripts/install.bash -a --accept-extpack-license --install-extpack --install-dir=$phpvirtualboxPath --vbox-user=$vboxUser
+        echo; printGood "RECOMMENDATIONS:"
+        echo "-  Confirm the correct username and password are listed in /var/www/html/virtualbox/config.php"
+        echo "-  Check your apache2 instance to ensure it is running and on which port (run 'sudo ss -ltpn | grep apache2')"
         exit 0
+
+        # Original method to install virtualbox and phpvirtualbox
+        # echo; wget -q https://www.virtualbox.org/download/oracle_vbox_2016.asc -O- | sudo apt-key add -
+        # echo; wget -q https://www.virtualbox.org/download/oracle_vbox.asc -O- | sudo apt-key add -
+        # echo; sudo add-apt-repository "deb [arch=amd64] http://download.virtualbox.org/virtualbox/debian $(lsb_release -cs) contrib"
+        # echo; sudo apt update && echo; sudo apt-cache search VirtualBox | grep "virtualbox-"
+        # printQuestion "What version of VirtualBox would you like to install? [i.e. \"6.1\"]"; read VERSION
+        # echo; sudo apt -y install unzip apache2 php libapache2-mod-php php-soap php-xml php-json php-mysql virtualbox-$VERSION
+        # # Install vbox extension pack
+        # upgradeExtensionPack
+        # # Enable php soap extension
+        # phpVersion=$(php --version | head -n1 | cut -f2 -d' ' | cut -f1-2 -d'.')
+        # sudo sed -i "s/;extension=soap/extension=soap/g" /etc/php/$phpVersion/apache2/php.ini
+        # # Install phpvirtualbox
+        # wget https://github.com/phpvirtualbox/phpvirtualbox/archive/$phpvirtualboxBranch.zip
+        #     # wget https://github.com/phpvirtualbox/phpvirtualbox/archive/master.zip 
+        # sudo unzip -d /var/www/html $phpvirtualboxBranch.zip && rm phpvirtualbox-$phpvirtualboxBranch.zip && sudo mv /var/www/html/phpvirtualbox-$phpvirtualboxBranch $phpvirtualboxPath
+        # # Add user to vboxusers (enabling usb access, etc)
+        # sudo usermod -a -G vboxusers $USER
+        # # Identify default vbox user and host (in case vbox is running on another system)
+        # echo "VBOXWEB_USER=$USER" | sudo tee /etc/default/virtualbox
+        # echo "VBOXWEB_HOST=127.0.0.1" | sudo tee -a /etc/default/virtualbox
+        # # Create default config file
+        # sudo cp /var/www/html/vbox/config.php-example /var/www/html/vbox/config.php
+        # sudo sed -i "s/var \$username.*/var \$username = $USER';/g" /var/www/html/vbox/config.php
+        # printQuestion "What is the password for $USER (this will be used in phpvirtualbox's config.php)?"; read PASS
+        # sudo sed -i "s/var \$password.*/var \$password = '$PASS';/g" /var/www/html/vbox/config.php
+        # # Restart vbox web service
+        # sudo systemctl restart apache2
+        # restartVboxWebSvc
     else
         echo; printError "You are not connected to the internet; connect to the internet and try again. Exiting..."
         exit 1
@@ -485,7 +525,10 @@ if [[ ! -f $vboxManageExe ]]; then
     fi
     echo
 fi
-printGood "phpVirtualBox Version:  $phpvirtualboxVersion"
+printGood "Oracle VM VirtualBox Version Installed:  $virtualboxVersionShort"
+if [[ "$virtualboxVersionShort" = "$virtualboxVersionAvailable" ]]; then virtualboxVersionAvailable="[The latest version is installed]"; fi
+printGood "Oracle VM VirtualBox Version Available:  $virtualboxVersionAvailable"
+printGood "phpVirtualBox Version Installed:  $phpvirtualboxVersion"
 printGood "Running as user:  $(whoami)"
 printGood "Logging to file:  $logFile"
 
